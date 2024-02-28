@@ -6,6 +6,8 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
+apikey = "VFVETDZPXW4IOBLD"
+
 client_ticker = []
 def portfolio():
     with open("portfolio.json") as json_file:
@@ -18,9 +20,27 @@ def homepage():
 
     client_stocks = portfolio()
     stock_dict    = {}
+    total_value = 0
 
     for item in client_stocks["portfolios"][0]["items"]:
-        stock_dict[item["ticker"]] = item["quantity"]
+        stock = item["ticker"]
+
+        url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={stock}&apikey={apikey}"
+        response = requests.get(url)
+        data = response.json()
+        stock_dict[item["ticker"]] = {
+            "quantity":item["quantity"],
+            "purchase_price":item["purchase_price"],
+            "price": float(data["Global Quote"]["05. price"]),
+            "latest_trading_day": data["Global Quote"]["07. latest trading day"],
+            "total_value": round(float(data["Global Quote"]["05. price"])*item["quantity"],2)
+        }
+        total_value += stock_dict[item["ticker"]]["total_value"]
+        
+    for stock, value in stock_dict.items():
+        stock_dict[stock]["weighted_value"] = round((value["total_value"]/total_value)*100,2)
+
+    stock_dict["portfolio_value"] = total_value
     
     return stock_dict
 
@@ -28,7 +48,6 @@ def homepage():
 def ticker_info(ticker):
 
     try:
-        apikey = "VFVETDZPXW4IOBLD"
         stock = ticker
         url = f"https://www.alphavantage.co/query?function=TIME_SERIES_WEEKLY&symbol={stock}&apikey={apikey}"
         
