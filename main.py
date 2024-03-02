@@ -61,7 +61,32 @@ def ticker_info(ticker):
         return stock_info
 
     except Exception as e:
+        print(str(e)) 
+
+@app.route('/search/<ticker>', methods=["GET"])
+def ticker_search(ticker):
+
+    try:
+        stock = ticker
+        url = f"https://www.alphavantage.co/query?function=SYMBOL_SEARCH&keywords={stock}&apikey={apikey}"
+        
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            if data["bestMatches"] != []:
+                stock_dict = {}
+                for stock in data["bestMatches"]:
+                    stock_dict[stock["1. symbol"]] = stock["2. name"]
+                
+                return stock_dict
+            else:
+                return "No data available for the request stock"
+        else:
+            raise Exception("Error obtaining the information of the stocks", "status code {}" .format(response.status_code))
+
+    except Exception as e:
         print(str(e))
+
 
 if __name__ == "__main__":
     app.run(debug=True)

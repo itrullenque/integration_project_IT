@@ -2,21 +2,25 @@ import requests
 import json
 
 
-def portfolio():
-    with open("portfolio.json") as json_file:
-        data = json.load(json_file)
+try:
+    apikey = "VFVETDZPXW4IOBLD"
+    stock = "AAPL"
+    url = f"https://www.alphavantage.co/query?function=SYMBOL_SEARCH&keywords={stock}&apikey={apikey}"
     
-    return data
+    response = requests.get(url)
+    value = response.raise_for_status()
+    if response.status_code == 200:
+        data = response.json()
+        if data["bestMatches"] != []:
+            stock_dict = {}
+            for stock in data["bestMatches"]:
+                stock_dict[stock["1. symbol"]] = stock["2. name"]
+            
+            stock_dict
+        else:
+            "No data available for the request stock"
+    else:
+        raise Exception("Error obtaining the information of the stocks", "status code {}" .format(response.status_code))
 
-client_stocks = portfolio()
-
-client_ticker =[]    
-for item in client_stocks["portfolios"][0]["items"]:
-    
-    stock_dict = {
-        item["ticker"] : item["quantity"]
-    }
-
-    client_ticker.append(stock_dict)
-
-print(client_ticker)
+except Exception as e:
+    print(str(e))
