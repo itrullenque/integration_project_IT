@@ -33,6 +33,7 @@ def get_all():
         if response.status_code == 200:
             data = response.json()
             if "items" in data and len(data["items"])>0:
+                #if quantity = 0, exclude
                 return data["items"]
             else:
                 raise Exception("Data no found in stock databases")
@@ -50,6 +51,7 @@ def put_stocks(props):
     data = get_all()
     #post - modify a stock that already exist in the database
     if props["action"] == "modify":
+        action = "modifiyed"
         for item in data:
             if item["ticker"] == props["ticker"]:
                 dict_post = {
@@ -62,9 +64,24 @@ def put_stocks(props):
                     "purchase_price": item["purchase_price"]
                 }
                 break
+    elif props["action"] == "delete":
+        action = "deleted"
+        for item in data:
+            if item["ticker"] == props["ticker"]:
+                dict_post = {
+                    "stock_id": item["stock_id"],
+                    "portfolio_id": item["portfolio_id"],
+                    "user_id": item["user_id"],
+                    "user_name":item["user_name"],
+                    "ticker": item["ticker"],
+                    "quantity": 0,
+                    "purchase_price": item["purchase_price"]
+                }
+                break
 
     #put - create a new object in the database
     else:
+        action = "created"
         dict_post = {
                     "stock_id": generate_token(),
                     "portfolio_id": portfolio_id,
@@ -83,7 +100,7 @@ def put_stocks(props):
             response = requests.put(url,data=json_data,headers={"Content-Type": "application/json"})
 
             if response.status_code == 200:
-                return "Stock modified correctly", 200
+                return f"Stock {action} successfully", 200
             else:
                 return f"Failed to modify stock. Reason: {response.reason}", response.status_code
         except Exception as e:
@@ -101,6 +118,9 @@ def homepage():
 
     for item in client_stocks:
         stock = item["ticker"]
+        #If quantity is cero is suposed to be eliminated
+        if item["quantity"] == 0:
+            continue
 
         url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={stock}&apikey={apikey}"
         response = requests.get(url)
@@ -182,7 +202,7 @@ def edit_portfolio():
                 }
                 response = ticker_search(new_data["ticker"]) #validate if the stock exist in alphavantage
             else:
-                return jsonify({"error_code": 201,"message": "Empty ticker"})
+                return jsonify({"error_code": 400,"message": "Empty ticker"})
         else:
             if data["selectedStock"] != "":
                 new_data = {
