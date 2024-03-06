@@ -12,18 +12,22 @@ app.config['CORS_HEADERS'] = 'Content-Type'
 
 #General variables
 apikey = "VFVETDZPXW4IOBLD"
+#Variables to access to the portfolio in Oracle, because still dont have login
 portfolio_id = "91474d3a-2bcd-4638-985d-089680444d55"
 user_id = "61480832-0556-4176-8a20-f491f2597e96"
 user_name= "Ignacio Trullenque"
 
+#Utility function to generate a token every time the user create a new stock.
+#I ask chat gpt for this, and also i use the logic of my previous codes of my work.
 def generate_token(length=40):
     alphabet = string.ascii_letters + string.digits
-    timestamp = str(int(time.time() * 1000))  # Get current time in milliseconds since epoch and convert to string
+    timestamp = str(int(time.time() * 1000))  
     random_chars_length = length - len(timestamp)
     random_chars = ''.join(secrets.choice(alphabet) for _ in range(random_chars_length))
     return timestamp + random_chars
 
 #Get the stock from oracle DB - table: USER_STOCKS
+#Is a get all to obtain the whole data.
 def get_all():
 
     try:
@@ -46,6 +50,8 @@ def get_all():
     return []
 
 #Method to make a put-post request to the table USER_STOCKS
+#In the rest API of the DB, the POST and PUT works as the same, so i used the same URL to create and modify.
+# The logic of wich action need to execute depend of the information privided by the front.
 def put_stocks(props):
 
     data = get_all()
@@ -64,6 +70,7 @@ def put_stocks(props):
                     "purchase_price": item["purchase_price"]
                 }
                 break
+    #Delete method. The rest endpoint dont have a specific one to delete, so im managing add a cero in the quantity or create a new variable of state.
     elif props["action"] == "delete":
         action = "deleted"
         for item in data:
@@ -92,6 +99,7 @@ def put_stocks(props):
                     "purchase_price": 0
                 }
     
+    #Preparing the data to make the request to the DB.
     if dict_post:
         json_data = json.dumps(dict_post)
         stock_id = dict_post["stock_id"]
@@ -132,16 +140,16 @@ def homepage():
             "latest_trading_day": data["Global Quote"]["07. latest trading day"],
             "total_value": round(float(data["Global Quote"]["05. price"])*item["quantity"],2)
         }
-        total_value += stock_dict[item["ticker"]]["total_value"]
-        
+        total_value += stock_dict[item["ticker"]]["total_value"] #calculation of the total value of the portfolio 
+    
     for stock, value in stock_dict.items():
-        stock_dict[stock]["weighted_value"] = round((value["total_value"]/total_value)*100,2)
+        stock_dict[stock]["weighted_value"] = round((value["total_value"]/total_value)*100,2) #% of the representation of the stock in the portfolio
 
     stock_dict["portfolio_value"] = round(total_value,2)
     
     return stock_dict
 
-#Get the last two month by week of the relevant information of the stocks
+#Get the last two month by week of the relevant information of the stocks using AlphaVantage for the info.
 @app.route('/<ticker>', methods=["GET"])
 def ticker_info(ticker):
 
@@ -161,6 +169,7 @@ def ticker_info(ticker):
     except Exception as e:
         print(str(e)) 
 
+#Extra implementation by me:
 #Search bar - if exist a match between the name input by the user and the info od Alphavantage
 @app.route('/search/<ticker>', methods=["GET"])
 def ticker_search(ticker):
@@ -186,11 +195,13 @@ def ticker_search(ticker):
     except Exception as e:
         print(str(e))
 
+#Route to edit the portfolio.
 #Create a new stock or modify a previous one in the portfolio
 @app.route('/edit_stock', methods=["POST", "OPTIONS"])
 @cross_origin()
 def edit_portfolio():
 
+    #Logic to manage the user request
     data = request.get_json()   
     if data and "action" in data:
         if data["action"] == "create":
@@ -226,6 +237,7 @@ def edit_portfolio():
             return jsonify({"error_code": 400,"message": "Ticker doesn't exists"})    
     else:
         return jsonify({"error_code": 400,"message": "Empty data"})
+
 
 if __name__ == "__main__":
     app.run(debug=True)
