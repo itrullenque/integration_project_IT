@@ -164,9 +164,6 @@ def homepage():
 
     for item in client_stocks:
         stock = item["ticker"]
-        #If quantity is cero is suposed to be eliminated
-        if item["quantity"] == 0:
-            continue
 
         url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={stock}&apikey={apikey}"
         response = requests.get(url)
