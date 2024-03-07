@@ -5,6 +5,7 @@ from flask_cors import CORS, cross_origin
 import secrets
 import string
 import time
+import http.client
 
 app = Flask(__name__)
 CORS(app)
@@ -49,43 +50,60 @@ def get_all():
     
     return []
 
+#Get the stock from oracle DB - table: USER_STOCKS
+#Is a single stock_id
+def get(stock_id):
+
+    try:
+        url = f"https://g71ab6e0bc037e1-stocktrackerdb.adb.eu-madrid-1.oraclecloudapps.com/ords/admin/user_stocks/{stock_id}" 
+        response = requests.get(url)
+
+        if response.status_code == 200:
+            data = response.json()
+            if "stock_id" in data and data["stock_id"] == stock_id:
+                return data
+            else:
+                raise Exception("Stock doenst found in DB")
+        else:
+            response.raise_for_status()
+    
+    except Exception as e:
+        print("Error:", str(e))
+    
+    return []
+
 #Method to make a put-post request to the table USER_STOCKS
 #In the rest API of the DB, the POST and PUT works as the same, so i used the same URL to create and modify.
 # The logic of wich action need to execute depend of the information privided by the front.
 def put_stocks(props):
 
-    data = get_all()
+    if props["action"] != "create":
+        data = get(props["stock_id"])
     #post - modify a stock that already exist in the database
     if props["action"] == "modify":
         action = "modifiyed"
-        for item in data:
-            if item["ticker"] == props["ticker"]:
-                dict_post = {
-                    "stock_id": item["stock_id"],
-                    "portfolio_id": item["portfolio_id"],
-                    "user_id": item["user_id"],
-                    "user_name":item["user_name"],
-                    "ticker": item["ticker"],
-                    "quantity": props["quantity"],
-                    "purchase_price": item["purchase_price"]
-                }
-                break
+        dict_post = {
+            "stock_id": data["stock_id"],
+            "portfolio_id": data["portfolio_id"],
+            "user_id": data["user_id"],
+            "user_name":data["user_name"],
+            "ticker": data["ticker"],
+            "quantity": props["quantity"],
+            "purchase_price": data["purchase_price"]
+        }
+                
     #Delete method. The rest endpoint dont have a specific one to delete, so im managing add a cero in the quantity or create a new variable of state.
     elif props["action"] == "delete":
         action = "deleted"
-        for item in data:
-            if item["ticker"] == props["ticker"]:
-                dict_post = {
-                    "stock_id": item["stock_id"],
-                    "portfolio_id": item["portfolio_id"],
-                    "user_id": item["user_id"],
-                    "user_name":item["user_name"],
-                    "ticker": item["ticker"],
-                    "quantity": 0,
-                    "purchase_price": item["purchase_price"]
-                }
-                break
-
+        dict_post = {
+            "stock_id": data["stock_id"],
+            "portfolio_id": data["portfolio_id"],
+            "user_id": data["user_id"],
+            "user_name":data["user_name"],
+            "ticker": data["ticker"],
+            "quantity": 0,
+            "purchase_price": data["purchase_price"]
+        }
     #put - create a new object in the database
     else:
         action = "created"
@@ -94,7 +112,7 @@ def put_stocks(props):
                     "portfolio_id": portfolio_id,
                     "user_id": user_id,
                     "user_name":user_name,
-                    "ticker": props["ticker"],
+                    "ticker": props["ticker"].upper().strip(),
                     "quantity": props["quantity"],
                     "purchase_price": 0
                 }
@@ -116,6 +134,26 @@ def put_stocks(props):
     else:
         return f"Failed to modify stock"
 
+#Delete a specific stock_id from the DB
+def delete_stocks(props):
+
+    data = get(props["stock_id"])
+    stock_id = data["stock_id"]
+    action = "delete"
+
+    stock_id = data["stock_id"]
+    try:
+        conn = http.client.HTTPSConnection("g71ab6e0bc037e1-stocktrackerdb.adb.eu-madrid-1.oraclecloudapps.com")
+        conn.request("DELETE", f"/ords/admin/user_stocks/{stock_id}")
+        response = conn.getresponse()
+
+        if response.code == 200:
+            return f"Stock {action} successfully", 200
+        else:
+            return f"Failed to modify stock. Reason: {response.reason}", response.status_code
+    except Exception as e:
+        print(f"Error: {str(e)}")
+
 #Hompage - it render the portfolio
 @app.route('/', methods=["GET"])
 def homepage():
@@ -134,6 +172,7 @@ def homepage():
         response = requests.get(url)
         data = response.json()
         stock_dict[item["ticker"]] = {
+            "stock_id":item["stock_id"],
             "quantity":item["quantity"],
             "purchase_price":item["purchase_price"],
             "price": float(data["Global Quote"]["05. price"]),
@@ -188,7 +227,7 @@ def ticker_search(ticker):
                 
                 return stock_dict
             else:
-                return "No data available for the request stock"
+                return 400,"No data available for the request stock"
         else:
             raise Exception("Error obtaining the information of the stocks", "status code {}" .format(response.status_code))
 
@@ -197,7 +236,7 @@ def ticker_search(ticker):
 
 #Route to edit the portfolio.
 #Create a new stock or modify a previous one in the portfolio
-@app.route('/edit_stock', methods=["POST", "OPTIONS"])
+@app.route('/edit_stock', methods=["POST", "PUT","OPTIONS"])
 @cross_origin()
 def edit_portfolio():
 
@@ -208,10 +247,13 @@ def edit_portfolio():
             if data["newStockName"] != "":
                 new_data = {
                     "action":data["action"],
-                    "ticker":data["newStockName"],
+                    "ticker":data["newStockName"].upper().strip(),
                     "quantity":data["newStockQuantity"]
                 }
                 response = ticker_search(new_data["ticker"]) #validate if the stock exist in alphavantage
+                
+                if new_data["ticker"] not in response:
+                    return jsonify({"error_code": 400,"message": "No data available for the requested stock"})
             else:
                 return jsonify({"error_code": 400,"message": "Empty ticker"})
         else:
@@ -219,22 +261,21 @@ def edit_portfolio():
                 new_data = {
                     "action":data["action"],
                     "ticker":data["selectedStock"],
-                    "quantity":data["quantity"]
+                    "quantity":data["quantity"],
+                    "stock_id":data["stockId"]
                 }
-                response = ticker_search(new_data["ticker"])
             else:
                 return jsonify({"error_code": 201,"message": "Empty ticker"})
             
-        #if the stock is exactly the same as a stock in alphavantage we send a post-put
-        key = list(response.keys())[0]
-        if new_data["ticker"] == key:
-            put_response = put_stocks(new_data)
-            if put_response[1] == 200:
-                return jsonify({"error_code": 200,"message": put_response[0]}) 
-            else:
-                return jsonify({"error_code": put_response[1],"message": put_response[0]}) 
+        #Sending the post-put to the DB
+        if new_data["action"] in ["modify", "create"]:
+            response = put_stocks(new_data)
         else:
-            return jsonify({"error_code": 400,"message": "Ticker doesn't exists"})    
+            response = delete_stocks(new_data)
+        if response[1] == 200:
+            return jsonify({"error_code": 200,"message": response[0]}) 
+        else:
+            return jsonify({"error_code": response[1],"message": response[0]})   
     else:
         return jsonify({"error_code": 400,"message": "Empty data"})
 
