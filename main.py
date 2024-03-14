@@ -18,7 +18,7 @@ app.secret_key = "VFVETDZPXW4IOBLDKK"
 #General variables
 apikey = "VFVETDZPXW4IOBLD"
 
-#credentials
+#credentials to the DB
 un = 'ADMIN'
 pw = 'Trullenque1990'
 dsn = '(description= (retry_count=20)(retry_delay=3)(address=(protocol=tcps)(port=1522)(host=adb.eu-madrid-1.oraclecloud.com))(connect_data=(service_name=g71ab6e0bc037e1_stocktrackerdb2_high.adb.oraclecloud.com))(security=(ssl_server_dn_match=yes)))'
@@ -37,7 +37,7 @@ app.config['SQLALCHEMY_ECHO'] = True
 db.init_app(app)
 
 #Get the stock from oracle DB - table: USER_STOCKS
-#Is a get all to obtain the whole data.
+#Get all the data of an secific user id.
 def get_all(user_id):
 
     try:
@@ -164,7 +164,7 @@ def delete_stocks(data):
     except Exception as e:
         print(f"Error: {str(e)}")
 
-#Hompage - it render the portfolio
+#API Hompage - it render the portfolio
 @app.route('/<userId>', methods=["GET"])
 def homepage(userId):
 
@@ -198,7 +198,7 @@ def homepage(userId):
     else:
         return {}
 
-#Get the last two month by week of the relevant information of the stocks using AlphaVantage for the info.
+#API ticker info: Get the last two month by week of the relevant information of the stocks using AlphaVantage for the info.
 @app.route('/ticker/<ticker>', methods=["GET"])
 def ticker_info(ticker):
 
@@ -297,7 +297,8 @@ def edit_portfolio():
             return jsonify({"error_code": response.default_status,"message": response.status})   
     else:
         return jsonify({"error_code": 400,"message": "Empty data"})
-    
+
+#User loggin 
 @app.route('/login', methods=["POST"])
 @cross_origin()
 def login():
