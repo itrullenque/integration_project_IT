@@ -11,9 +11,11 @@ from sqlalchemy.pool import NullPool
 import oracledb
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, supports_credentials=True, resources={r"/*" : {"origins" : "*"}})
 app.config['CORS_HEADERS'] = 'Content-Type'
-app.secret_key = "VFVETDZPXW4IOBLDKK"
+app.config['SESSION_COOKIE_SAMESITE'] = "None"
+app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SECRET_KEY'] = "VFVETDZPXW4IOBLDKK"
 
 #General variables
 apikey = "VFVETDZPXW4IOBLD"
@@ -168,40 +170,46 @@ def delete_stocks(data):
 @app.route('/<userId>', methods=["GET"])
 def homepage(userId):
 
-    user_id = userId
-    client_stocks = get_all(user_id)
-    if client_stocks:
-        stock_dict    = {}
-        total_value = 0
+    session_id = session.get("userId")
+    if "userId" in session and userId==session_id:
+        user_id = userId
+        client_stocks = get_all(user_id)
+        if client_stocks:
+            stock_dict    = {}
+            total_value = 0
 
-        for item in client_stocks:
-            stock = item[2]
+            for item in client_stocks:
+                stock = item[2]
 
-            url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={stock}&apikey={apikey}"
-            response = requests.get(url)
-            data = response.json()
-            stock_dict[item[2]] = {
-                "stock_id":item[0],
-                "quantity":item[1],
-                "price": float(data["Global Quote"]["05. price"]),
-                "latest_trading_day": data["Global Quote"]["07. latest trading day"],
-                "total_value": round(float(data["Global Quote"]["05. price"])*item[1],2)
-            }
-            total_value += stock_dict[item[2]]["total_value"] #calculation of the total value of the portfolio 
-        
-        for stock, value in stock_dict.items():
-            stock_dict[stock]["weighted_value"] = round((value["total_value"]/total_value)*100,2) #% of the representation of the stock in the portfolio
+                url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={stock}&apikey={apikey}"
+                response = requests.get(url)
+                data = response.json()
+                stock_dict[item[2]] = {
+                    "stock_id":item[0],
+                    "quantity":item[1],
+                    "price": float(data["Global Quote"]["05. price"]),
+                    "latest_trading_day": data["Global Quote"]["07. latest trading day"],
+                    "total_value": round(float(data["Global Quote"]["05. price"])*item[1],2)
+                }
+                total_value += stock_dict[item[2]]["total_value"] #calculation of the total value of the portfolio 
+            
+            for stock, value in stock_dict.items():
+                stock_dict[stock]["weighted_value"] = round((value["total_value"]/total_value)*100,2) #% of the representation of the stock in the portfolio
 
-        stock_dict["portfolio_value"] = round(total_value,2)
-        
-        return stock_dict
+            stock_dict["portfolio_value"] = round(total_value,2)
+            
+            return stock_dict
+        else:
+            return {}
     else:
-        return {}
+        return jsonify({"error_code": 400, "message": "User not authenticated"})
 
 #API ticker info: Get the last two month by week of the relevant information of the stocks using AlphaVantage for the info.
 @app.route('/ticker/<ticker>', methods=["GET"])
 def ticker_info(ticker):
 
+    if "userId" not in session:
+        return jsonify({"error_code": 400, "message": "User not authenticated"})
     try:
         stock = ticker
         url = f"https://www.alphavantage.co/query?function=TIME_SERIES_WEEKLY&symbol={stock}&apikey={apikey}"
@@ -223,6 +231,8 @@ def ticker_info(ticker):
 @app.route('/search/<ticker>', methods=["GET"])
 def ticker_search(ticker):
 
+    if "userId" not in session:
+        return jsonify({"error_code": 400, "message": "User not authenticated"})
     try:
         stock = ticker
         url = f"https://www.alphavantage.co/query?function=SYMBOL_SEARCH&keywords={stock}&apikey={apikey}"
@@ -246,10 +256,11 @@ def ticker_search(ticker):
 
 #Route to edit the portfolio.
 #Create a new stock or modify a previous one in the portfolio
-@app.route('/edit_stock', methods=["POST", "PUT","OPTIONS"])
-@cross_origin()
+@app.route('/edit_stock', methods=["POST", "PUT"])
 def edit_portfolio():
 
+    if "userId" not in session:
+        return jsonify({"error_code": 400, "message": "User not authenticated"})
     #Logic to manage the user request
     data = request.get_json()   
     if data and "action" in data:
@@ -298,9 +309,12 @@ def edit_portfolio():
     else:
         return jsonify({"error_code": 400,"message": "Empty data"})
 
+@app.route('/login', methods=["OPTIONS"])
+def options_login():
+    return jsonify("OK"), 200
+
 #User loggin 
 @app.route('/login', methods=["POST"])
-@cross_origin()
 def login():
 
     user_dict = request.get_json()
@@ -316,17 +330,37 @@ def login():
 
     with app.app_context():
     # Try to find an existing record
-        users_response = Users.query.filter_by(user_id=user_id, password=password).first()
-        if users_response and users_response.user_id == user_id and users_response.password == password:
-            return jsonify({"error_code": 200,"message": "login ok"})
+        try:
+            users_response = Users.query.filter_by(user_id=user_id, password=password).first()
+            if users_response and users_response.user_id == user_id and users_response.password == password:
+                session.permanent = True
+                session.modified = True
+                session["userId"] = users_response.user_id
+                return jsonify({"error_code": 200,"message": "login ok","userId": session["userId"]})
 
-        if user_name:
-            users_response = Users(user_id=user_id, password=password, user_name=user_name, user_mail=user_mail)
-            db.session.add(users_response)
-            db.session.commit()
-            return jsonify({"error_code": 200,"message": "login ok"})
-        else:
-            return jsonify({"error_code": 400,"message": "Error in loggin"})
+            if user_name:
+                users_response = Users(user_id=user_id, password=password, user_name=user_name, user_mail=user_mail)
+                db.session.add(users_response)
+                db.session.commit()
+                session.permanent = True
+                session.modified = True
+                session["userId"] = users_response.user_id
+                return jsonify({"error_code": 200,"message": "login ok","userId": session["userId"]})
+            else:
+                return jsonify({"error_code": 400,"message": "Error in loggin"})
+        except Exception as e:
+            print(str(e))
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    if "userId" in session:
+        session.pop("userId")
+        #session["userId"] = ""
+    
+    #response = make_response(jsonify({"message": "logged user out"}))
+    #response.set_cookie('session', '', expires=0, secure=True, httponly=True, samesite='None')
+
+    return jsonify({"message": "logged user out"}), 200
 
 if __name__ == "__main__":
     app.run(debug=True)
